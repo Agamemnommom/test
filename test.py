@@ -6,20 +6,22 @@ from aiogram.filters import Command
 from aiogram.types import Message
 import asyncio
 
-TOKEN = "МОЙ_TOKEN"
+TOKEN = "МОЙ ТОКЕН"
+CHAT_ID = None
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
 logging.basicConfig(level=logging.INFO)
 
-# Список курсов с их URL и названиями для удобства
 COURSES = [
     {"name": "Курс 1", "url": "https://lk.msu.ru/course/view?id=3794"},
     {"name": "Курс 2", "url": "https://lk.msu.ru/course/view?id=3795"},
     {"name": "Курс 3", "url": "https://lk.msu.ru/course/view?id=3793"},
     {"name": "Курс 4", "url": "https://lk.msu.ru/course/view?id=3597"},
 ]
+
+PREVIOUS_DATA = {course["name"]: None for course in COURSES}
 
 def get_enrollment_data(url):
     response = requests.get(url)
@@ -33,11 +35,13 @@ def get_enrollment_data(url):
                     enrolled_count = br.next_sibling.strip()
                     enrolled, total = map(str.strip, enrolled_count.split('/'))
                     return f"Записалось: {enrolled} из {total} мест."
-    return "Данные нема."
+    return "Данных нема."
 
 @dp.message(Command("start"))
 async def start_command(message: Message):
-    await message.answer("Здарова! Отправь /check, чтобы узнать число записавшихся на прекрасные курсы МФК.")
+    global CHAT_ID
+    CHAT_ID = message.chat.id
+    await message.answer("Здаров! Отправь /check, чтобы узнать число записавшихся. Я также пршлю уведомления если число участников где-то изменится.")
 
 @dp.message(Command("check"))
 async def check_command(message: Message):
@@ -45,7 +49,23 @@ async def check_command(message: Message):
         data = get_enrollment_data(course["url"])
         await message.answer(f"{course['name']}: {data}")
 
+async def monitor_enrollment():
+    global PREVIOUS_DATA
+    while True:
+        for course in COURSES:
+            current_data = get_enrollment_data(course["url"])
+            previous = PREVIOUS_DATA[course["name"]]
+            if previous is not None and current_data != previous:
+                if CHAT_ID:
+                    await bot.send_message(
+                        CHAT_ID,
+                        f"Изменение в {course['name']}: было '{previous}', стало '{current_data}'"
+                    )
+            PREVIOUS_DATA[course["name"]] = current_data
+        await asyncio.sleep(20)
+
 async def main():
+    asyncio.create_task(monitor_enrollment())
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
